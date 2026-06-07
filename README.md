@@ -290,5 +290,8 @@ See [scenarios/README.md](scenarios/README.md) for all environment variables.
 - `otel-direct-app` sends OTLP/HTTP directly to `https://otlp.nr-data.net:4318` and uses `NEW_RELIC_LICENSE_KEY` as the OTLP `api-key` header.
 - OTel-only services set `OTEL_SEMCONV_STABILITY_OPT_IN=http/dup`, `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta`, and `OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION=base2_exponential_bucket_histogram` so New Relic can derive APM metrics from `http.server.request.duration`.
 - All app patterns connect to the shared `postgres` service through `DATABASE_URL`. The app writes orders to the `orders` table and reads them back through `GET /orders/:id`.
-- Manual instrumentation is intentionally present in all patterns. New Relic agent mode uses the New Relic agent API, while OTel modes use the OpenTelemetry API.
+- Manual instrumentation is intentionally present in all patterns.
+- `baseline` uses the New Relic agent API for spans, metrics, and logs.
+- `otel-api` uses the OTel API bridge for spans and the New Relic agent API for custom metrics/logs so the sample does not rely on unsupported bridge behavior.
+- OTel-only modes use the OpenTelemetry API and SDK for spans, metrics, and logs.
 - OTel-only services explicitly register `@opentelemetry/instrumentation-pg` and import the shared app core after `NodeSDK.start()`. Loading `pg` before SDK startup prevents the OTel instrumentation from patching the client.

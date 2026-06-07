@@ -1,17 +1,10 @@
 import express from "express";
-import { metrics } from "@opentelemetry/api";
-import type {
-  OrderService,
-  OrderTelemetry,
+import {
+  OrderConfirmationError,
+  RequestValidationError,
 } from "sample-core";
+import type { OrderService, OrderTelemetry } from "sample-core";
 import { createNoopOrderTelemetry } from "sample-core";
-
-const httpServerDuration = metrics
-  .getMeter("newrelic-apm-pattern-sample-http")
-  .createHistogram("http.server.request.duration", {
-    unit: "s",
-    description: "Duration of HTTP server requests.",
-  });
 
 export function createApiApp(
   orderService: OrderService,
@@ -19,7 +12,6 @@ export function createApiApp(
 ) {
   const app = express();
 
-  app.use(httpServerDurationMiddleware);
   app.use(express.json());
 
   app.get("/health", (_req, res) => {
@@ -47,8 +39,22 @@ export function createApiApp(
 
       res.status(201).json(order);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "invalid request";
-      res.status(400).json({ error: message });
+      if (error instanceof RequestValidationError) {
+        res.status(400).json({ error: error.message });
+        return;
+      }
+
+      if (error instanceof OrderConfirmationError) {
+        res.status(500).json({
+          error: "payment approved but order confirmation failed",
+          orderId: error.orderId,
+          paymentId: error.paymentId,
+        });
+        return;
+      }
+
+      const message = error instanceof Error ? error.message : "internal server error";
+      res.status(500).json({ error: message });
     }
   });
 
@@ -68,34 +74,4 @@ export function createApiApp(
   });
 
   return app;
-}
-
-const httpServerDurationMiddleware: express.RequestHandler = (req, res, next) => {
-  const start = process.hrtime.bigint();
-
-  res.on("finish", () => {
-    const durationSeconds = Number(process.hrtime.bigint() - start) / 1_000_000_000;
-    const route = getRoute(req);
-
-    httpServerDuration.record(durationSeconds, {
-      "http.request.method": req.method,
-      "http.response.status_code": res.statusCode,
-      "http.route": route,
-      "server.address": req.hostname,
-      "server.port": Number(req.socket.localPort ?? 0),
-      "url.scheme": req.protocol,
-    });
-  });
-
-  next();
-};
-
-function getRoute(req: express.Request) {
-  const routePath = req.route?.path;
-
-  if (typeof routePath === "string") {
-    return routePath;
-  }
-
-  return req.path;
 }

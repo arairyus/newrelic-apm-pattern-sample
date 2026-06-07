@@ -6,6 +6,15 @@ exports.config = {
   logging: {
     level: process.env.NEW_RELIC_LOG_LEVEL ?? "info",
   },
+  application_logging: {
+    enabled: true,
+    forwarding: {
+      enabled: true,
+    },
+    metrics: {
+      enabled: true,
+    },
+  },
   opentelemetry: {
     enabled: true,
     traces: {

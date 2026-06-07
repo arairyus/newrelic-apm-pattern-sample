@@ -1,14 +1,9 @@
-import { context, metrics, trace, type Span } from "@opentelemetry/api";
-import { logs, SeverityNumber } from "@opentelemetry/api-logs";
+import { trace, type Span } from "@opentelemetry/api";
+import newrelic from "newrelic";
 import type {
   OrderTelemetry,
   TelemetryAttributes,
 } from "sample-core";
-
-const meter = metrics.getMeter("newrelic-apm-pattern-sample-otel-api");
-const ordersCreatedCounter = meter.createCounter("orders.created");
-const ordersFailedCounter = meter.createCounter("orders.failed");
-const checkoutDurationHistogram = meter.createHistogram("checkout.duration");
 
 export const telemetry: OrderTelemetry = {
   async runInSpan<T>(
@@ -33,39 +28,30 @@ export const telemetry: OrderTelemetry = {
       },
     ) as Promise<T>;
   },
-  recordMetric(name, value, attributes) {
-    const normalizedAttributes = normalizeAttributes(attributes);
-
-    switch (name) {
-      case "orders.created":
-        ordersCreatedCounter.add(value, normalizedAttributes);
-        return;
-      case "orders.failed":
-        ordersFailedCounter.add(value, normalizedAttributes);
-        return;
-      case "checkout.duration":
-        checkoutDurationHistogram.record(value, normalizedAttributes);
-        return;
-      default:
-        checkoutDurationHistogram.record(value, normalizedAttributes);
-    }
+  recordMetric(name, value) {
+    newrelic.recordMetric(`Custom/${name}`, value);
   },
   log(level, message, attributes) {
-    const span = trace.getSpan(context.active());
-    const spanContext = span?.spanContext();
-    const normalizedAttributes = {
+    const traceMetadata = newrelic.getTraceMetadata();
+    const payload = {
+      level,
+      message,
+      trace_id: traceMetadata.traceId,
+      span_id: traceMetadata.spanId,
       ...normalizeAttributes(attributes),
-      trace_id: spanContext?.traceId,
-      span_id: spanContext?.spanId,
     };
 
-    logs.getLogger("newrelic-apm-pattern-sample-otel-api").emit({
+    newrelic.recordLogEvent({
       timestamp: Date.now(),
-      severityNumber: severityNumberFor(level),
-      severityText: level.toUpperCase(),
-      body: message,
-      attributes: normalizedAttributes,
+      ...payload,
     });
+
+    if (level === "error") {
+      console.error(JSON.stringify(payload));
+      return;
+    }
+
+    console.log(JSON.stringify(payload));
   },
 };
 
@@ -73,15 +59,4 @@ function normalizeAttributes(attributes?: TelemetryAttributes) {
   return Object.fromEntries(
     Object.entries(attributes ?? {}).filter(([, value]) => value !== undefined),
   ) as Record<string, string | number | boolean>;
-}
-
-function severityNumberFor(level: "info" | "warn" | "error") {
-  switch (level) {
-    case "error":
-      return SeverityNumber.ERROR;
-    case "warn":
-      return SeverityNumber.WARN;
-    default:
-      return SeverityNumber.INFO;
-  }
 }

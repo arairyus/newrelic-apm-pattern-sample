@@ -8,6 +8,7 @@ import type {
 const meter = metrics.getMeter("newrelic-apm-pattern-sample-collector");
 const ordersCreatedCounter = meter.createCounter("orders.created");
 const ordersFailedCounter = meter.createCounter("orders.failed");
+const ordersConfirmationFailedCounter = meter.createCounter("orders.confirmation_failed");
 const checkoutDurationHistogram = meter.createHistogram("checkout.duration");
 
 export const telemetry: OrderTelemetry = {
@@ -43,11 +44,14 @@ export const telemetry: OrderTelemetry = {
       case "orders.failed":
         ordersFailedCounter.add(value, normalizedAttributes);
         return;
+      case "orders.confirmation_failed":
+        ordersConfirmationFailedCounter.add(value, normalizedAttributes);
+        return;
       case "checkout.duration":
         checkoutDurationHistogram.record(value, normalizedAttributes);
         return;
       default:
-        checkoutDurationHistogram.record(value, normalizedAttributes);
+        return;
     }
   },
   log(level, message, attributes) {

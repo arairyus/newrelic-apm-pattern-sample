@@ -1,8 +1,9 @@
 import express, { type Express } from "express";
-import type {
-  OrderService,
-  OrderTelemetry,
+import {
+  OrderConfirmationError,
+  RequestValidationError,
 } from "sample-core";
+import type { OrderService, OrderTelemetry } from "sample-core";
 import { createNoopOrderTelemetry } from "sample-core";
 
 export function createApiApp(
@@ -38,8 +39,22 @@ export function createApiApp(
 
       res.status(201).json(order);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "invalid request";
-      res.status(400).json({ error: message });
+      if (error instanceof RequestValidationError) {
+        res.status(400).json({ error: error.message });
+        return;
+      }
+
+      if (error instanceof OrderConfirmationError) {
+        res.status(500).json({
+          error: "payment approved but order confirmation failed",
+          orderId: error.orderId,
+          paymentId: error.paymentId,
+        });
+        return;
+      }
+
+      const message = error instanceof Error ? error.message : "internal server error";
+      res.status(500).json({ error: message });
     }
   });
 

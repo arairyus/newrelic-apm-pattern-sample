@@ -10,20 +10,25 @@ export async function startOrderSampleRuntime(options: {
   const fakeExternalServer = createServer(options.createFakeExternalApp());
   await listen(fakeExternalServer, options.fakeExternalPort);
 
-  const apiServer = createServer(options.createApiApp());
-  await listen(apiServer, options.apiPort);
+  try {
+    const apiServer = createServer(options.createApiApp());
+    await listen(apiServer, options.apiPort);
 
-  return {
-    apiServer,
-    fakeExternalServer,
-    async shutdown() {
-      await Promise.all([
-        close(apiServer),
-        close(fakeExternalServer),
-        options.onShutdown?.(),
-      ]);
-    },
-  };
+    return {
+      apiServer,
+      fakeExternalServer,
+      async shutdown() {
+        await Promise.all([
+          close(apiServer),
+          close(fakeExternalServer),
+          options.onShutdown?.(),
+        ]);
+      },
+    };
+  } catch (error) {
+    await close(fakeExternalServer).catch(() => {});
+    throw error;
+  }
 }
 
 export function getDatabaseUrl() {

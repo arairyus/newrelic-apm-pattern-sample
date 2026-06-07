@@ -5,6 +5,28 @@ import {
   type OrderTelemetry,
 } from "./telemetry";
 
+export class RequestValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RequestValidationError";
+  }
+}
+
+export class OrderConfirmationError extends Error {
+  declare cause: unknown;
+
+  constructor(
+    readonly orderId: string,
+    readonly userId: string,
+    readonly paymentId: string,
+    cause: unknown,
+  ) {
+    super(`order confirmation failed after payment approval: ${orderId}`);
+    this.name = "OrderConfirmationError";
+    this.cause = cause;
+  }
+}
+
 export type ExternalGateway = {
   charge(input: {
     orderId: string;
@@ -23,40 +45,44 @@ export class OrderService {
 
   validateCreateOrderRequest(input: unknown): CreateOrderRequest {
     if (!isObject(input)) {
-      throw new Error("request body must be an object");
+      throw new RequestValidationError("request body must be an object");
     }
 
     const { userId, items, paymentToken } = input as Record<string, unknown>;
 
     if (typeof userId !== "string" || userId.trim() === "") {
-      throw new Error("userId is required");
+      throw new RequestValidationError("userId is required");
     }
 
     if (typeof paymentToken !== "string" || paymentToken.trim() === "") {
-      throw new Error("paymentToken is required");
+      throw new RequestValidationError("paymentToken is required");
     }
 
     if (!Array.isArray(items) || items.length === 0) {
-      throw new Error("items must be a non-empty array");
+      throw new RequestValidationError("items must be a non-empty array");
     }
 
     const normalizedItems = items.map((item, index) => {
       if (!isObject(item)) {
-        throw new Error(`items[${index}] must be an object`);
+        throw new RequestValidationError(`items[${index}] must be an object`);
       }
 
       const { sku, quantity, unitPrice } = item as Record<string, unknown>;
 
       if (typeof sku !== "string" || sku.trim() === "") {
-        throw new Error(`items[${index}].sku is required`);
+        throw new RequestValidationError(`items[${index}].sku is required`);
       }
 
       if (!isPositiveInteger(quantity)) {
-        throw new Error(`items[${index}].quantity must be a positive integer`);
+        throw new RequestValidationError(
+          `items[${index}].quantity must be a positive integer`,
+        );
       }
 
-      if (!isPositiveNumber(unitPrice)) {
-        throw new Error(`items[${index}].unitPrice must be a positive number`);
+      if (!isValidPrice(unitPrice)) {
+        throw new RequestValidationError(
+          `items[${index}].unitPrice must be a positive number with up to 2 decimal places`,
+        );
       }
 
       return {
@@ -105,6 +131,7 @@ export class OrderService {
           db_operation: "INSERT",
         });
 
+        let charge: ChargeResponse;
         try {
           this.telemetry.log("info", "payment charge requested", {
             event_name: "payment.charge.requested",
@@ -112,7 +139,7 @@ export class OrderService {
             user_id: draft.userId,
             amount: draft.amount,
           });
-          const charge = await this.telemetry.runInSpan(
+          charge = await this.telemetry.runInSpan(
             "charge-payment",
             {
               order_id: draft.id,
@@ -127,54 +154,6 @@ export class OrderService {
                 paymentToken: input.paymentToken,
               }),
           );
-          this.telemetry.log("info", "payment charge approved", {
-            event_name: "payment.charge.approved",
-            order_id: draft.id,
-            user_id: draft.userId,
-            amount: draft.amount,
-            payment_id: charge.chargeId,
-          });
-
-          const confirmed = await this.telemetry.runInSpan(
-            "db.confirm-order",
-            {
-              "db.system": "postgresql",
-              "db.operation": "UPDATE",
-              "db.sql.table": "orders",
-              order_id: draft.id,
-            },
-            () =>
-              this.store.save({
-                ...draft,
-                status: "confirmed",
-                paymentId: charge.chargeId,
-              }),
-          );
-          this.telemetry.log("info", "order status persisted", {
-            event_name: "order.db.status.persisted",
-            order_id: confirmed.id,
-            user_id: confirmed.userId,
-            status: confirmed.status,
-            db_operation: "UPDATE",
-          });
-
-          this.telemetry.recordMetric("orders.created", 1, {
-            user_id: confirmed.userId,
-            status: confirmed.status,
-          });
-          this.telemetry.recordMetric("checkout.duration", Date.now() - startedAt, {
-            outcome: "success",
-          });
-          this.telemetry.log("info", "order confirmed", {
-            event_name: "order.confirmed",
-            order_id: confirmed.id,
-            user_id: confirmed.userId,
-            amount: confirmed.amount,
-            payment_id: confirmed.paymentId,
-            status: confirmed.status,
-          });
-
-          return confirmed;
         } catch (error) {
           const failureReason =
             error instanceof Error ? error.message : "payment failed";
@@ -226,6 +205,78 @@ export class OrderService {
 
           return failed;
         }
+
+        this.telemetry.log("info", "payment charge approved", {
+          event_name: "payment.charge.approved",
+          order_id: draft.id,
+          user_id: draft.userId,
+          amount: draft.amount,
+          payment_id: charge.chargeId,
+        });
+
+        try {
+          const confirmed = await this.telemetry.runInSpan(
+            "db.confirm-order",
+            {
+              "db.system": "postgresql",
+              "db.operation": "UPDATE",
+              "db.sql.table": "orders",
+              order_id: draft.id,
+            },
+            () =>
+              this.store.save({
+                ...draft,
+                status: "confirmed",
+                paymentId: charge.chargeId,
+              }),
+          );
+          this.telemetry.log("info", "order status persisted", {
+            event_name: "order.db.status.persisted",
+            order_id: confirmed.id,
+            user_id: confirmed.userId,
+            status: confirmed.status,
+            db_operation: "UPDATE",
+          });
+
+          this.telemetry.recordMetric("orders.created", 1, {
+            user_id: confirmed.userId,
+            status: confirmed.status,
+          });
+          this.telemetry.recordMetric("checkout.duration", Date.now() - startedAt, {
+            outcome: "success",
+          });
+          this.telemetry.log("info", "order confirmed", {
+            event_name: "order.confirmed",
+            order_id: confirmed.id,
+            user_id: confirmed.userId,
+            amount: confirmed.amount,
+            payment_id: confirmed.paymentId,
+            status: confirmed.status,
+          });
+
+          return confirmed;
+        } catch (error) {
+          this.telemetry.recordMetric("orders.confirmation_failed", 1, {
+            user_id: draft.userId,
+            status: draft.status,
+          });
+          this.telemetry.recordMetric("checkout.duration", Date.now() - startedAt, {
+            outcome: "confirmation_failure",
+          });
+          this.telemetry.log("error", "order confirmation failed after payment approval", {
+            event_name: "order.confirmation.failed",
+            order_id: draft.id,
+            user_id: draft.userId,
+            amount: draft.amount,
+            payment_id: charge.chargeId,
+          });
+          throw new OrderConfirmationError(
+            draft.id,
+            draft.userId,
+            charge.chargeId,
+            error,
+          );
+        }
       },
     );
   }
@@ -261,6 +312,11 @@ function isPositiveInteger(value: unknown): value is number {
   return Number.isInteger(value) && typeof value === "number" && value > 0;
 }
 
-function isPositiveNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0;
+function isValidPrice(value: unknown): value is number {
+  return (
+    typeof value === "number"
+    && Number.isFinite(value)
+    && value > 0
+    && Math.round(value * 100) === value * 100
+  );
 }

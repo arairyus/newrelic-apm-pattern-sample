@@ -3,7 +3,11 @@ import { Pool, type PoolConfig } from "pg";
 import type { CreateOrderRequest, Order } from "./types";
 
 function calculateAmount(items: CreateOrderRequest["items"]) {
-  return items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+  const totalCents = items.reduce(
+    (sum, item) => sum + item.quantity * Math.round(item.unitPrice * 100),
+    0,
+  );
+  return totalCents / 100;
 }
 
 export type OrderStore = {
