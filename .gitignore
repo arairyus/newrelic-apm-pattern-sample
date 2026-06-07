@@ -11,8 +11,6 @@ coverage/
 .env
 .env.*
 !.env.example
-newrelic.js
-newrelic.cjs
 newrelic.yml
 newrelic.ini
 *.pem

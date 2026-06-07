@@ -1,5 +1,25 @@
 {
   "name": "sample-core",
+  "version": "0.1.0",
   "private": true,
-  "type": "commonjs"
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "pg": "^8.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.21",
+    "@types/pg": "^8.20.0",
+    "typescript": "^5.8.3"
+  }
 }
