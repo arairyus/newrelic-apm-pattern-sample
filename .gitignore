@@ -6,11 +6,15 @@ dist/
 build/
 coverage/
 *.tsbuildinfo
+bin/
+obj/
 
 # env / secrets
 .env
 .env.*
 !.env.example
+.venv/
+requirements.txt
 newrelic.yml
 newrelic.ini
 *.pem

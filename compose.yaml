@@ -49,6 +49,30 @@ services:
       - "3001:3000"
       - "4002:4001"
 
+  dotnet-apm:
+    build:
+      context: .
+      dockerfile: apps/dotnet-apm/Dockerfile
+    environment:
+      NEW_RELIC_APP_NAME: newrelic-apm-pattern-sample-dotnet-apm
+      NEW_RELIC_LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY}
+      NEW_RELIC_LOG_LEVEL: ${NEW_RELIC_LOG_LEVEL:-info}
+      PAYMENT_ENDPOINT: http://127.0.0.1:3000/fake/charge
+    ports:
+      - "3005:3000"
+
+  dotnet-otel-hybrid:
+    build:
+      context: .
+      dockerfile: apps/dotnet-otel-hybrid/Dockerfile
+    environment:
+      NEW_RELIC_APP_NAME: newrelic-apm-pattern-sample-dotnet-otel-hybrid
+      NEW_RELIC_LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY}
+      NEW_RELIC_LOG_LEVEL: ${NEW_RELIC_LOG_LEVEL:-info}
+      PAYMENT_ENDPOINT: http://127.0.0.1:3000/fake/charge
+    ports:
+      - "3006:3000"
+
   collector-gateway:
     image: otel/opentelemetry-collector-contrib:0.127.0
     command:

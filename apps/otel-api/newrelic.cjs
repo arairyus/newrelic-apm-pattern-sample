@@ -20,5 +20,11 @@ exports.config = {
     traces: {
       enabled: true,
     },
+    metrics: {
+      enabled: true,
+    },
+    logs: {
+      enabled: true,
+    },
   },
 };

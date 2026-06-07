@@ -1,6 +1,6 @@
 # New Relic APM Pattern Sample
 
-This repository compares New Relic Node.js agent patterns and OpenTelemetry patterns using the same sample order API.
+This repository compares New Relic hybrid/APM patterns across Node.js and .NET, plus OpenTelemetry patterns, using the same sample order API.
 
 The app exposes:
 
@@ -16,6 +16,8 @@ The app exposes:
 | --- | ---: | --- | --- |
 | `baseline` | `3000` | New Relic Node.js agent | App process -> New Relic APM |
 | `otel-api` | `3001` | New Relic Node.js agent with OTel API bridge | App process -> New Relic APM |
+| `dotnet-apm` | `3005` | New Relic .NET agent (no OTel) + New Relic API manual instrumentation | App process -> New Relic APM |
+| `dotnet-otel-hybrid` | `3006` | New Relic .NET Hybrid Agent (OTel API support) + OTel manual instrumentation | App process -> New Relic APM |
 | `collector-app` | `3002` | OTel SDK with Collector gateway | App -> shared OTel Collector -> New Relic OTLP |
 | `collector-agent-app` | `3003` | OTel SDK with Collector sidecar/agent | App -> colocated OTel Collector -> New Relic OTLP |
 | `otel-direct-app` | `3004` | OTel SDK direct-to-New Relic | App -> New Relic OTLP |
@@ -29,6 +31,8 @@ flowchart TB
   subgraph NR_Agent["New Relic agent patterns"]
     baseline["baseline\nNew Relic Node.js agent"]
     otel_api["otel-api\nNew Relic agent + OTel API bridge"]
+    dotnet_apm["dotnet-apm\nNew Relic .NET agent (manual API)"]
+    dotnet_otel_hybrid["dotnet-otel-hybrid\nNew Relic .NET Hybrid Agent"]
   end
 
   subgraph OTel["OpenTelemetry patterns"]
@@ -45,6 +49,8 @@ flowchart TB
 
   baseline --> postgres
   otel_api --> postgres
+  dotnet_apm --> nr_apm
+  dotnet_otel_hybrid --> nr_apm
   collector_app --> postgres
   collector_agent_app --> postgres
   otel_direct --> postgres
@@ -60,6 +66,8 @@ flowchart TB
 - [compose.yaml](compose.yaml): root Compose file for all patterns.
 - [apps/baseline](apps/baseline): New Relic Node.js agent sample.
 - [apps/otel-api](apps/otel-api): New Relic Node.js agent with OTel API bridge sample.
+- [apps/dotnet-apm](apps/dotnet-apm): New Relic .NET APM sample without OTel, including manual instrumentation via `NewRelic.Agent.Api`.
+- [apps/dotnet-otel-hybrid](apps/dotnet-otel-hybrid): New Relic .NET Hybrid Agent sample with OTel API support and manual instrumentation via OpenTelemetry API.
 - [apps/collector](apps/collector): OTel SDK app used by gateway, sidecar/agent, and direct modes.
 - [otel/collector-gateway.yaml](otel/collector-gateway.yaml): shared Collector gateway config.
 - [otel/collector-agent.yaml](otel/collector-agent.yaml): sidecar/agent Collector config.
@@ -112,6 +120,8 @@ The order matters. `config-internal.yaml` is loaded last so its `service.telemet
 | `collector-app` | `3002` | `4003` |
 | `collector-agent-app` | `3003` | `4004` |
 | `otel-direct-app` | `3004` | `4005` |
+| `dotnet-apm` | `3005` | in-process `/fake/charge` |
+| `dotnet-otel-hybrid` | `3006` | in-process `/fake/charge` |
 | `postgres` | `55432` | n/a |
 
 Health check example:
@@ -142,9 +152,19 @@ Expected service/entity names:
 
 - `newrelic-apm-pattern-sample-baseline`
 - `newrelic-apm-pattern-sample-otel-api`
+- `newrelic-apm-pattern-sample-dotnet-apm`
+- `newrelic-apm-pattern-sample-dotnet-otel-hybrid`
 - `newrelic-apm-pattern-sample-collector`
 - `newrelic-apm-pattern-sample-collector-agent`
 - `newrelic-apm-pattern-sample-otel-direct`
+
+Dotnet patterns:
+
+- `dotnet-apm` uses New Relic .NET agent only (no OpenTelemetry support block in `newrelic.config`) and manual instrumentation via `NewRelic.Agent.Api`.
+- `dotnet-otel-hybrid` enables OpenTelemetry API support in `apps/dotnet-otel-hybrid/newrelic.config` with:
+  - `<openTelemetry enabled="true">`
+  - `<traces include="newrelic-apm-pattern-sample-dotnet-otel-hybrid" />`
+  - `<metrics include="newrelic-apm-pattern-sample-dotnet-otel-hybrid" export_interval="10000" />`
 
 Useful NRQL checks:
 
@@ -152,6 +172,17 @@ Useful NRQL checks:
 SELECT count(*)
 FROM Transaction
 WHERE appName LIKE 'newrelic-apm-pattern-sample%'
+SINCE 30 minutes ago
+FACET appName
+```
+
+```sql
+SELECT count(*)
+FROM Transaction
+WHERE appName IN (
+  'newrelic-apm-pattern-sample-dotnet-apm',
+  'newrelic-apm-pattern-sample-dotnet-otel-hybrid'
+)
 SINCE 30 minutes ago
 FACET appName
 ```
@@ -194,9 +225,48 @@ FACET entity.name, service.name, appName, name, db.operation
 ```sql
 SELECT count(*)
 FROM Metric
-WHERE service.name LIKE 'newrelic-apm-pattern-sample%'
+WHERE (
+  service.name LIKE 'newrelic-apm-pattern-sample%'
+  OR entity.name LIKE 'newrelic-apm-pattern-sample%'
+)
 SINCE 30 minutes ago
-FACET service.name, metricName
+FACET entity.name, service.name, metricName
+```
+
+For `otel-api` custom metrics (`orders.created`, `orders.failed`, `orders.confirmation_failed`, `checkout.duration`), first discover the target `entity.guid`. Some datapoints can have `entity.name`/`service.name` unset:
+
+```sql
+SELECT uniques(entity.guid), latest(entity.name), latest(service.name)
+FROM Metric
+WHERE metricName IN (
+  'orders.created',
+  'orders.failed',
+  'orders.confirmation_failed',
+  'checkout.duration'
+)
+AND (
+  appName = 'newrelic-apm-pattern-sample-otel-api'
+  OR service.name = 'newrelic-apm-pattern-sample-otel-api'
+  OR entity.name = 'newrelic-apm-pattern-sample-otel-api'
+)
+SINCE 30 minutes ago
+FACET metricName
+```
+
+Then query with the discovered guid:
+
+```sql
+SELECT count(*)
+FROM Metric
+WHERE entity.guid = '<paste-entity-guid>'
+AND metricName IN (
+  'orders.created',
+  'orders.failed',
+  'orders.confirmation_failed',
+  'checkout.duration'
+)
+SINCE 30 minutes ago
+FACET metricName, entity.guid, entity.name
 ```
 
 ## Collector Observability
@@ -292,6 +362,6 @@ See [scenarios/README.md](scenarios/README.md) for all environment variables.
 - All app patterns connect to the shared `postgres` service through `DATABASE_URL`. The app writes orders to the `orders` table and reads them back through `GET /orders/:id`.
 - Manual instrumentation is intentionally present in all patterns.
 - `baseline` uses the New Relic agent API for spans, metrics, and logs.
-- `otel-api` uses the OTel API bridge for spans and the New Relic agent API for custom metrics/logs so the sample does not rely on unsupported bridge behavior.
+- `otel-api` uses the OTel API bridge for manual spans, metrics, and logs while keeping the New Relic APM agent for auto instrumentation and APM integration.
 - OTel-only modes use the OpenTelemetry API and SDK for spans, metrics, and logs.
 - OTel-only services explicitly register `@opentelemetry/instrumentation-pg` and import the shared app core after `NodeSDK.start()`. Loading `pg` before SDK startup prevents the OTel instrumentation from patching the client.
