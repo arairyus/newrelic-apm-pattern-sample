@@ -1,7 +1,14 @@
 import express, { type Express } from "express";
-import type { OrderService } from "../../../packages/sample-core/src";
+import type {
+  OrderService,
+  OrderTelemetry,
+} from "sample-core";
+import { createNoopOrderTelemetry } from "sample-core";
 
-export function createApiApp(orderService: OrderService): Express {
+export function createApiApp(
+  orderService: OrderService,
+  telemetry: OrderTelemetry = createNoopOrderTelemetry(),
+): Express {
   const app = express();
 
   app.use(express.json());
@@ -15,7 +22,13 @@ export function createApiApp(orderService: OrderService): Express {
 
   app.post("/orders", async (req, res) => {
     try {
-      const input = orderService.validateCreateOrderRequest(req.body);
+      const input = await telemetry.runInSpan(
+        "validate-order",
+        {
+          route: "/orders",
+        },
+        () => orderService.validateCreateOrderRequest(req.body),
+      );
       const order = await orderService.createOrder(input);
 
       if (order.status === "failed") {
@@ -30,8 +43,8 @@ export function createApiApp(orderService: OrderService): Express {
     }
   });
 
-  app.get("/orders/:id", (req, res) => {
-    const order = orderService.getOrder(req.params.id);
+  app.get("/orders/:id", async (req, res) => {
+    const order = await orderService.getOrder(req.params.id);
 
     if (!order) {
       res.status(404).json({ error: "order not found" });

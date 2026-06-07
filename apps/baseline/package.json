@@ -1,21 +1,26 @@
 {
-  "name": "newrelic-apm-pattern-sample-app",
+  "name": "newrelic-apm-pattern-sample-baseline",
   "version": "0.1.0",
   "private": true,
   "type": "commonjs",
   "packageManager": "pnpm@10.15.1",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.json",
-    "start": "node dist/app/src/index.js",
+    "build": "pnpm --filter sample-core build && tsc -p tsconfig.json",
+    "start": "node -r newrelic dist/apps/baseline/src/index.js",
     "start:dev": "tsx src/index.ts"
   },
   "dependencies": {
-    "express": "^4.21.2"
+    "express": "^4.21.2",
+    "newrelic": "^14.1.0",
+    "pg": "^8.21.0",
+    "sample-core": "workspace:*"
   },
   "devDependencies": {
     "@types/express": "^5.0.3",
+    "@types/newrelic": "^9.14.8",
     "@types/node": "^22.15.21",
+    "@types/pg": "^8.20.0",
     "tsx": "^4.19.4",
     "typescript": "^5.8.3"
   }

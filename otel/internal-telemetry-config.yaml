@@ -1,0 +1,27 @@
+service:
+  telemetry:
+    resource:
+      service.name: ${env:INTERNAL_TELEMETRY_SERVICE_NAME}
+      service.instance.id: ${env:HOSTNAME}
+      newrelic.service.type: otel_collector
+    logs:
+      level: ${env:INTERNAL_TELEMETRY_LOGS_LEVEL:-info}
+      encoding: json
+      sampling:
+        enabled: ${env:INTERNAL_TELEMETRY_LOGS_SAMPLING_ENABLED:-true}
+        tick: ${env:INTERNAL_TELEMETRY_LOGS_SAMPLING_TICK:-10s}
+        initial: ${env:INTERNAL_TELEMETRY_LOGS_SAMPLING_INITIAL:-10}
+        thereafter: ${env:INTERNAL_TELEMETRY_LOGS_SAMPLING_THEREAFTER:-100}
+    metrics:
+      level: ${env:INTERNAL_TELEMETRY_METRICS_LEVEL:-normal}
+      readers:
+        - periodic:
+            interval: ${env:INTERNAL_TELEMETRY_METRICS_INTERVAL_MS:-30000}
+            timeout: ${env:INTERNAL_TELEMETRY_METRICS_TIMEOUT_MS:-10000}
+            exporter:
+              otlp:
+                protocol: http/protobuf
+                endpoint: ${env:INTERNAL_TELEMETRY_OTLP_ENDPOINT:-https://otlp.nr-data.net:4318}
+                headers:
+                  - name: api-key
+                    value: ${env:INTERNAL_TELEMETRY_NEW_RELIC_LICENSE_KEY}

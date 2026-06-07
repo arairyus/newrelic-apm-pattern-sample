@@ -1,6 +1,6 @@
 import express, { type Express } from "express";
 import { randomUUID } from "node:crypto";
-import type { ChargeRequest, ChargeResponse } from "../../../packages/sample-core/src";
+import type { ChargeRequest, ChargeResponse } from "sample-core";
 
 export function createFakeExternalApp(): Express {
   const app = express();

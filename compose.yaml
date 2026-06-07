@@ -1,0 +1,159 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: newrelic_apm_pattern_sample
+    ports:
+      - "55432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d newrelic_apm_pattern_sample"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  baseline:
+    build:
+      context: .
+      dockerfile: apps/baseline/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/newrelic_apm_pattern_sample
+      NEW_RELIC_APP_NAME: newrelic-apm-pattern-sample-baseline
+      NEW_RELIC_LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY}
+      NEW_RELIC_LOG_LEVEL: ${NEW_RELIC_LOG_LEVEL:-info}
+      PORT: 3000
+      FAKE_EXTERNAL_PORT: 4001
+    depends_on:
+      - postgres
+    ports:
+      - "3000:3000"
+      - "4001:4001"
+
+  otel-api:
+    build:
+      context: .
+      dockerfile: apps/otel-api/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/newrelic_apm_pattern_sample
+      NEW_RELIC_APP_NAME: newrelic-apm-pattern-sample-otel-api
+      NEW_RELIC_LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY}
+      NEW_RELIC_LOG_LEVEL: ${NEW_RELIC_LOG_LEVEL:-info}
+      PORT: 3000
+      FAKE_EXTERNAL_PORT: 4001
+    depends_on:
+      - postgres
+    ports:
+      - "3001:3000"
+      - "4002:4001"
+
+  collector-gateway:
+    image: otel/opentelemetry-collector-contrib:0.127.0
+    command:
+      - --config=/etc/otelcol/config.yaml
+      - --config=/etc/otelcol/config-internal.yaml
+    environment:
+      NEW_RELIC_LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY}
+      INTERNAL_TELEMETRY_NEW_RELIC_LICENSE_KEY: ${INTERNAL_TELEMETRY_NEW_RELIC_LICENSE_KEY:-${NEW_RELIC_LICENSE_KEY}}
+      INTERNAL_TELEMETRY_SERVICE_NAME: newrelic-apm-pattern-sample-collector-gateway
+      INTERNAL_TELEMETRY_OTLP_ENDPOINT: ${INTERNAL_TELEMETRY_OTLP_ENDPOINT:-https://otlp.nr-data.net:4318}
+      INTERNAL_TELEMETRY_METRICS_LEVEL: ${INTERNAL_TELEMETRY_METRICS_LEVEL:-normal}
+      INTERNAL_TELEMETRY_METRICS_INTERVAL_MS: ${INTERNAL_TELEMETRY_METRICS_INTERVAL_MS:-30000}
+      INTERNAL_TELEMETRY_METRICS_TIMEOUT_MS: ${INTERNAL_TELEMETRY_METRICS_TIMEOUT_MS:-10000}
+      INTERNAL_TELEMETRY_LOGS_LEVEL: ${INTERNAL_TELEMETRY_LOGS_LEVEL:-info}
+      INTERNAL_TELEMETRY_LOGS_SAMPLING_ENABLED: ${INTERNAL_TELEMETRY_LOGS_SAMPLING_ENABLED:-true}
+      INTERNAL_TELEMETRY_LOGS_SAMPLING_TICK: ${INTERNAL_TELEMETRY_LOGS_SAMPLING_TICK:-10s}
+      INTERNAL_TELEMETRY_LOGS_SAMPLING_INITIAL: ${INTERNAL_TELEMETRY_LOGS_SAMPLING_INITIAL:-10}
+      INTERNAL_TELEMETRY_LOGS_SAMPLING_THEREAFTER: ${INTERNAL_TELEMETRY_LOGS_SAMPLING_THEREAFTER:-100}
+    volumes:
+      - ./otel/collector-gateway.yaml:/etc/otelcol/config.yaml:ro
+      - ./otel/internal-telemetry-config.yaml:/etc/otelcol/config-internal.yaml:ro
+
+  collector-app:
+    build:
+      context: .
+      dockerfile: apps/collector/Dockerfile
+    environment:
+      PORT: 3000
+      FAKE_EXTERNAL_PORT: 4001
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/newrelic_apm_pattern_sample
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://collector-gateway:4318
+      OTEL_SERVICE_NAME: newrelic-apm-pattern-sample-collector
+      OTEL_SEMCONV_STABILITY_OPT_IN: http/dup
+      OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE: delta
+      OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION: base2_exponential_bucket_histogram
+    depends_on:
+      - collector-gateway
+      - postgres
+    ports:
+      - "3002:3000"
+      - "4003:4001"
+
+  collector-agent-app:
+    build:
+      context: .
+      dockerfile: apps/collector/Dockerfile
+    environment:
+      PORT: 3000
+      FAKE_EXTERNAL_PORT: 4001
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/newrelic_apm_pattern_sample
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://127.0.0.1:4318
+      OTEL_SERVICE_NAME: newrelic-apm-pattern-sample-collector-agent
+      OTEL_SEMCONV_STABILITY_OPT_IN: http/dup
+      OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE: delta
+      OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION: base2_exponential_bucket_histogram
+    depends_on:
+      - postgres
+    ports:
+      - "3003:3000"
+      - "4004:4001"
+
+  collector-agent:
+    image: otel/opentelemetry-collector-contrib:0.127.0
+    command:
+      - --config=/etc/otelcol/config.yaml
+      - --config=/etc/otelcol/config-internal.yaml
+    network_mode: "service:collector-agent-app"
+    depends_on:
+      - collector-agent-app
+    environment:
+      NEW_RELIC_LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY}
+      INTERNAL_TELEMETRY_NEW_RELIC_LICENSE_KEY: ${INTERNAL_TELEMETRY_NEW_RELIC_LICENSE_KEY:-${NEW_RELIC_LICENSE_KEY}}
+      INTERNAL_TELEMETRY_SERVICE_NAME: newrelic-apm-pattern-sample-collector-agent
+      INTERNAL_TELEMETRY_OTLP_ENDPOINT: ${INTERNAL_TELEMETRY_OTLP_ENDPOINT:-https://otlp.nr-data.net:4318}
+      INTERNAL_TELEMETRY_METRICS_LEVEL: ${INTERNAL_TELEMETRY_METRICS_LEVEL:-normal}
+      INTERNAL_TELEMETRY_METRICS_INTERVAL_MS: ${INTERNAL_TELEMETRY_METRICS_INTERVAL_MS:-30000}
+      INTERNAL_TELEMETRY_METRICS_TIMEOUT_MS: ${INTERNAL_TELEMETRY_METRICS_TIMEOUT_MS:-10000}
+      INTERNAL_TELEMETRY_LOGS_LEVEL: ${INTERNAL_TELEMETRY_LOGS_LEVEL:-info}
+      INTERNAL_TELEMETRY_LOGS_SAMPLING_ENABLED: ${INTERNAL_TELEMETRY_LOGS_SAMPLING_ENABLED:-true}
+      INTERNAL_TELEMETRY_LOGS_SAMPLING_TICK: ${INTERNAL_TELEMETRY_LOGS_SAMPLING_TICK:-10s}
+      INTERNAL_TELEMETRY_LOGS_SAMPLING_INITIAL: ${INTERNAL_TELEMETRY_LOGS_SAMPLING_INITIAL:-10}
+      INTERNAL_TELEMETRY_LOGS_SAMPLING_THEREAFTER: ${INTERNAL_TELEMETRY_LOGS_SAMPLING_THEREAFTER:-100}
+    volumes:
+      - ./otel/collector-agent.yaml:/etc/otelcol/config.yaml:ro
+      - ./otel/internal-telemetry-config.yaml:/etc/otelcol/config-internal.yaml:ro
+
+  otel-direct-app:
+    build:
+      context: .
+      dockerfile: apps/collector/Dockerfile
+    environment:
+      PORT: 3000
+      FAKE_EXTERNAL_PORT: 4001
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/newrelic_apm_pattern_sample
+      OTEL_EXPORTER_OTLP_ENDPOINT: https://otlp.nr-data.net:4318
+      OTEL_SERVICE_NAME: newrelic-apm-pattern-sample-otel-direct
+      OTEL_SEMCONV_STABILITY_OPT_IN: http/dup
+      OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE: delta
+      OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION: base2_exponential_bucket_histogram
+      NEW_RELIC_LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY}
+    ports:
+      - "3004:3000"
+      - "4005:4001"
+    depends_on:
+      - postgres
+
+volumes:
+  postgres-data:

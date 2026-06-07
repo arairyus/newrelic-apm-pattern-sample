@@ -4,12 +4,12 @@
     "module": "CommonJS",
     "moduleResolution": "Node",
     "outDir": "dist",
-    "rootDir": "..",
+    "rootDir": "../..",
     "strict": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "resolveJsonModule": true
   },
-  "include": ["src/**/*.ts", "../packages/sample-core/src/**/*.ts"]
+  "include": ["src/**/*.ts"]
 }
